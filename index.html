@@ -1,0 +1,1062 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
+<meta name="theme-color" content="#0d1014">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="description" content="사진의 EXIF(위치·기기·촬영일시)를 지우고 터치로 모자이크하는 앱. 모든 처리는 기기 안에서만 이루어집니다.">
+<title>사진 EXIF 삭제 · 모자이크</title>
+<style>
+  :root{
+    --bg:#0d1014; --panel:#151a21; --panel2:#1c232c; --line:#2a323d;
+    --fg:#e9eef5; --muted:#8d99a8; --accent:#3ea6ff; --ok:#37c98b;
+    --warn:#ffb020; --danger:#ff6b6b; --radius:12px;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{height:100%;}
+  body{
+    margin:0; background:var(--bg); color:var(--fg);
+    font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",system-ui,sans-serif;
+    -webkit-font-smoothing:antialiased; overscroll-behavior:none; overflow:hidden;
+  }
+  .app{display:flex; flex-direction:column; height:100vh; height:100dvh;}
+
+  /* ---------- header ---------- */
+  header{
+    flex:0 0 auto; display:flex; align-items:center; gap:10px;
+    padding:calc(10px + env(safe-area-inset-top)) 14px 10px;
+    border-bottom:1px solid var(--line); background:#0f141a;
+  }
+  header .titles{min-width:0; flex:1;}
+  header h1{margin:0; font-size:15px; font-weight:700; letter-spacing:-.2px;}
+  header p{margin:2px 0 0; font-size:11.5px; color:var(--muted); line-height:1.3; word-break:keep-all;}
+  header h1{word-break:keep-all;}
+  header p b{color:var(--ok); font-weight:600;}
+  .hd-btn{
+    flex:0 0 auto; border:1px solid var(--line); background:var(--panel2); color:var(--fg);
+    font:inherit; font-size:12.5px; padding:9px 12px; border-radius:10px; min-height:40px;
+  }
+  .hd-btn:active{background:#26303b;}
+
+  /* ---------- stage ---------- */
+  .stage{flex:1 1 auto; min-height:0; display:flex; flex-direction:column; position:relative;}
+  .stagebody{
+    flex:1 1 auto; min-height:0; display:flex; align-items:center; justify-content:center;
+    padding:10px; position:relative;
+    background-color:#0b0f13;
+    background-image:
+      linear-gradient(45deg,#11161c 25%,transparent 25%,transparent 75%,#11161c 75%),
+      linear-gradient(45deg,#11161c 25%,transparent 25%,transparent 75%,#11161c 75%);
+    background-size:22px 22px; background-position:0 0,11px 11px;
+  }
+  .wrap{position:relative; touch-action:none; border-radius:10px; overflow:hidden;
+    box-shadow:0 8px 28px rgba(0,0,0,.5); background:#000; display:none;}
+  .wrap.on{display:block;}
+  #view{display:block; width:100%; height:100%; touch-action:none; cursor:crosshair;
+    user-select:none; -webkit-user-select:none; -webkit-touch-callout:none;}
+  #overlay{position:absolute; inset:0; width:100%; height:100%; pointer-events:none;}
+
+  /* ---------- exif bar ---------- */
+  .exifbar{
+    flex:0 0 auto; display:none; align-items:center; gap:8px; width:100%;
+    padding:8px 12px; font-size:12.5px; line-height:1.25; cursor:pointer;
+    background:#1a2028; border-bottom:1px solid var(--line); text-align:left;
+  }
+  .exifbar.on{display:flex;}
+  .exifbar .dot{width:8px; height:8px; border-radius:50%; flex:0 0 auto; background:var(--muted);}
+  .exifbar.warn .dot{background:var(--warn); box-shadow:0 0 8px rgba(255,176,32,.6);}
+  .exifbar.ok .dot{background:var(--ok);}
+  .exifbar .txt{flex:1 1 auto; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .exifbar .txt b{font-weight:700;}
+  .exifbar .chev{flex:0 0 auto; color:var(--muted); font-size:11px;}
+  .exifpanel{
+    position:absolute; left:10px; right:10px; top:0; z-index:6; display:none;
+    background:#12181f; border:1px solid var(--line); border-radius:12px;
+    box-shadow:0 12px 30px rgba(0,0,0,.55); padding:12px 14px; max-height:56vh; overflow:auto;
+  }
+  .exifpanel.on{display:block;}
+  .exifpanel dl{margin:0; display:grid; grid-template-columns:auto 1fr; gap:7px 12px; font-size:12.5px;}
+  .exifpanel dt{color:var(--muted); white-space:nowrap;}
+  .exifpanel dd{margin:0; word-break:break-all;}
+  .exifpanel .note{margin:10px 0 0; font-size:11.5px; color:var(--muted); line-height:1.45; word-break:keep-all;}
+
+  /* ---------- empty ---------- */
+  .empty{display:none; flex-direction:column; align-items:center; justify-content:center;
+    text-align:center; padding:24px; gap:4px; width:100%;}
+  .empty.on{display:flex;}
+  .empty svg{opacity:.85; margin-bottom:10px;}
+  .empty h2{margin:0; font-size:18px; font-weight:700;}
+  .empty p{margin:6px 0 0; font-size:13px; color:var(--muted); line-height:1.5;}
+  .empty .hint{margin-top:16px; font-size:11.5px; color:#6d7887; line-height:1.5;}
+  .empty .big{margin-top:18px; padding:14px 26px; font-size:16px;}
+
+  /* ---------- toolbar ---------- */
+  .toolbar{
+    flex:0 0 auto; background:#0f141a; border-top:1px solid var(--line);
+    padding:10px 12px calc(10px + env(safe-area-inset-bottom));
+    display:flex; flex-direction:column; gap:8px;
+  }
+  .row{display:flex; gap:8px; align-items:stretch;}
+  .seg{display:flex; background:var(--panel2); border-radius:var(--radius); padding:3px; gap:3px; flex:1 1 auto;}
+  .seg button{
+    flex:1 1 0; border:0; background:transparent; color:#aab4c1; font:inherit;
+    font-size:14px; font-weight:600; padding:0 6px; min-height:46px; border-radius:9px;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .seg button.on{background:var(--accent); color:#04121e;}
+  .seg.sm{flex:0 0 auto;}
+  .seg.sm button{min-width:52px;}
+  .btn{
+    border:1px solid var(--line); background:var(--panel2); color:var(--fg);
+    font:inherit; font-size:14px; font-weight:600; border-radius:var(--radius);
+    min-height:46px; padding:0 12px; display:flex; align-items:center; justify-content:center; gap:6px;
+    white-space:nowrap;
+  }
+  .btn:active{background:#26303b;}
+  .btn.primary{background:var(--accent); border-color:var(--accent); color:#04121e; font-weight:800; flex:2 1 0;}
+  .btn.ghost{flex:0 0 auto; font-size:13px; padding:0 10px; color:#c8d2de;}
+  .btn[disabled]{opacity:.38;}
+  .btn.wide{flex:1 1 0;}
+
+  /* ---------- toast ---------- */
+  #toast{
+    position:fixed; left:50%; transform:translateX(-50%) translateY(8px);
+    bottom:calc(190px + env(safe-area-inset-bottom)); z-index:20;
+    background:rgba(24,32,41,.97); color:#e9eef5; border:1px solid var(--line);
+    padding:11px 16px; border-radius:12px; font-size:13px; line-height:1.35;
+    box-shadow:0 10px 28px rgba(0,0,0,.5); max-width:calc(100% - 40px); text-align:center;
+    opacity:0; pointer-events:none; transition:opacity .18s, transform .18s;
+  }
+  #toast.on{opacity:1; transform:translateX(-50%) translateY(0);}
+  @media (max-height:640px){
+    header p{display:none;}
+    .empty h2{font-size:16px;}
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="titles">
+      <h1>사진 EXIF 삭제 · 모자이크</h1>
+      <p><b>서버 전송 없음</b> · 이 기기 안에서만 처리</p>
+    </div>
+    <button class="hd-btn" id="changeBtn" type="button" style="display:none">사진 바꾸기</button>
+  </header>
+
+  <main class="stage">
+    <div class="exifbar" id="exifbar" role="button" tabindex="0" aria-expanded="false">
+      <span class="dot"></span>
+      <span class="txt" id="exifText"></span>
+      <span class="chev" id="exifChev">자세히 ▾</span>
+    </div>
+
+    <div class="stagebody" id="stagebody">
+      <div class="empty on" id="empty">
+        <svg width="54" height="54" viewBox="0 0 24 24" fill="none" stroke="#8d99a8" stroke-width="1.6"
+             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="3" y="3" width="18" height="18" rx="2.5"></rect>
+          <circle cx="8.6" cy="8.8" r="1.9"></circle>
+          <path d="M21 15.5l-4.6-4.6L5.2 22"></path>
+        </svg>
+        <h2>사진을 불러오세요</h2>
+        <p>EXIF(위치·기기·촬영일시)를 지우고<br>터치로 모자이크할 수 있습니다.</p>
+        <button class="btn primary big" id="pickBtn" type="button">사진 선택</button>
+        <p class="hint">사진은 서버로 전송되지 않고<br>이 기기 안에서만 처리됩니다. (오프라인 작동)</p>
+      </div>
+
+      <div class="wrap" id="wrap">
+        <canvas id="view"></canvas>
+        <canvas id="overlay"></canvas>
+      </div>
+    </div>
+
+    <div class="exifpanel" id="exifpanel">
+      <dl id="exifList"></dl>
+      <p class="note" id="exifNote"></p>
+    </div>
+  </main>
+
+  <footer class="toolbar">
+    <div class="row">
+      <div class="seg" id="styleSeg" role="group" aria-label="가리기 방식">
+        <button type="button" data-style="mosaic" class="on" aria-pressed="true">모자이크</button>
+        <button type="button" data-style="blur" aria-pressed="false">블러</button>
+      </div>
+      <div class="seg sm" id="formatSeg" role="group" aria-label="저장 형식">
+        <button type="button" data-format="jpeg" class="on" aria-pressed="true">JPG</button>
+        <button type="button" data-format="png" aria-pressed="false">PNG</button>
+      </div>
+    </div>
+    <div class="row">
+      <div class="seg" id="sizeSeg" role="group" aria-label="브러시 크기">
+        <button type="button" data-size="s">소</button>
+        <button type="button" data-size="m" class="on">중</button>
+        <button type="button" data-size="l">대</button>
+      </div>
+      <button class="btn ghost" id="undoBtn" type="button">되돌리기</button>
+      <button class="btn ghost" id="resetBtn" type="button">초기화</button>
+    </div>
+    <div class="row">
+      <button class="btn primary" id="saveBtn" type="button">저장하기</button>
+      <button class="btn wide" id="shareBtn" type="button" hidden>공유하기</button>
+    </div>
+  </footer>
+</div>
+
+<input type="file" id="file" accept="image/*" hidden>
+<div id="toast" role="status" aria-live="polite"></div>
+<noscript><p style="padding:20px;text-align:center">이 앱을 쓰려면 자바스크립트를 켜 주세요.</p></noscript>
+
+<script>
+(function () {
+  'use strict';
+
+  /* ===================== 요소 ===================== */
+  var el = function (id) { return document.getElementById(id); };
+  var wrap = el('wrap'), view = el('view'), overlay = el('overlay');
+  var stagebody = el('stagebody');
+  var fileInput = el('file'), pickBtn = el('pickBtn'), empty = el('empty');
+  var exifbar = el('exifbar'), exifText = el('exifText'), exifChev = el('exifChev');
+  var exifpanel = el('exifpanel'), exifList = el('exifList'), exifNote = el('exifNote');
+  var styleSeg = el('styleSeg'), formatSeg = el('formatSeg'), sizeSeg = el('sizeSeg');
+  var undoBtn = el('undoBtn'), resetBtn = el('resetBtn');
+  var saveBtn = el('saveBtn'), shareBtn = el('shareBtn'), changeBtn = el('changeBtn');
+  var toastEl = el('toast');
+
+  var vctx = view.getContext('2d');
+  var octx = overlay.getContext('2d');
+  var src = document.createElement('canvas');           // 원본(회전 반영) 사본 — 항상 순수 상태
+  var sctx = src.getContext('2d');
+  var tmp = document.createElement('canvas');           // 모자이크 축소 샘플용
+  var tctx = tmp.getContext('2d');
+
+  /* ===================== 상태 ===================== */
+  var S = {
+    loaded: false, w: 0, h: 0, fmt: 'jpeg', style: 'mosaic', size: 'm',
+    radius: 40, orientation: 1, drawing: false, busy: false,
+    last: null, tiles: null, undo: [], scaleNote: false,
+    fileName: '', fileType: '', exif: null
+  };
+
+  var TILE = 256;            // 실행취소용 타일(선택 영역만 메모리에 보관)
+  var MAX_UNDO = 25;         // 되돌리기 최대 단계
+  var MAX_AREA = 16777216;   // 브라우저 캔버스 면적 한도(약 4096x4096) — 넘으면 비율 유지 축소
+  var SIZE_FRAC = { s: 0.035, m: 0.06, l: 0.10 };
+
+  /* ===================== 유틸 ===================== */
+  var toastTimer = null;
+  function toast(msg, ms) {
+    toastEl.textContent = msg;
+    toastEl.classList.add('on');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { toastEl.classList.remove('on'); }, ms || 2600);
+  }
+  function fmtBytes(n) {
+    if (!n && n !== 0) return '';
+    if (n < 1024) return n + 'B';
+    if (n < 1024 * 1024) return (n / 1024).toFixed(0) + 'KB';
+    return (n / 1024 / 1024).toFixed(1) + 'MB';
+  }
+  function pad(n) { return (n < 10 ? '0' : '') + n; }
+  function stampName(ext) {
+    var d = new Date();
+    return 'exif-cleaned-' + d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) +
+      '-' + pad(d.getHours()) + pad(d.getMinutes()) + pad(d.getSeconds()) + '.' + ext;
+  }
+  function setPressed(group, btn) {
+    Array.prototype.forEach.call(group.querySelectorAll('button'), function (b) {
+      b.classList.toggle('on', b === btn);
+      if (b.hasAttribute('aria-pressed')) b.setAttribute('aria-pressed', b === btn ? 'true' : 'false');
+    });
+  }
+
+  /* ===================== EXIF 파서 ===================== */
+  // JPEG APP1 / PNG eXIf / WebP EXIF 청크의 TIFF-IFD를 직접 읽어 GPS·기기·촬영일시·회전 정보를 뽑는다.
+  var TYPE_SIZE = { 1: 1, 2: 1, 3: 2, 4: 4, 5: 8, 6: 1, 7: 1, 8: 2, 9: 4, 10: 8, 11: 4, 12: 8 };
+
+  function readAscii(dv, off, count) {
+    var s = '', i, c;
+    for (i = 0; i < count; i++) {
+      c = dv.getUint8(off + i);
+      if (c === 0) break;
+      s += String.fromCharCode(c);
+    }
+    return s;
+  }
+  function readValue(dv, off, type, count, le) {
+    var i, out = [], size = TYPE_SIZE[type] || 1;
+    if (off < 0 || off + size * count > dv.byteLength) return null;
+    if (type === 2) return readAscii(dv, off, count).replace(/\s+$/, '');
+    for (i = 0; i < count && i < 64; i++) {
+      var p = off + i * size;
+      if (type === 1 || type === 7) out.push(dv.getUint8(p));
+      else if (type === 3) out.push(dv.getUint16(p, le));
+      else if (type === 4) out.push(dv.getUint32(p, le));
+      else if (type === 6) out.push(dv.getInt8(p));
+      else if (type === 8) out.push(dv.getInt16(p, le));
+      else if (type === 9) out.push(dv.getInt32(p, le));
+      else if (type === 5) out.push([dv.getUint32(p, le), dv.getUint32(p + 4, le)]);
+      else if (type === 10) out.push([dv.getInt32(p, le), dv.getInt32(p + 4, le)]);
+      else out.push(dv.getUint8(p));
+    }
+    return count === 1 ? out[0] : out;
+  }
+
+  // TIFF 헤더가 u8[0]에 오는 Uint8Array를 받아 태그를 읽는다.
+  function readTiff(u8) {
+    var res = null, dv, le, ifd0, seen = {};
+    if (u8.length < 8) return null;
+    dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+    var bo = dv.getUint16(0);
+    if (bo === 0x4949) le = true; else if (bo === 0x4D4D) le = false; else return null;
+    if (dv.getUint16(2, le) !== 42) return null;
+    ifd0 = dv.getUint32(4, le);
+
+    var tags = {}, exifTags = {}, gpsTags = {};
+    var order = [];
+
+    function readIfd(off, sink, depth) {
+      if (!off || off < 8 || off + 2 > dv.byteLength || seen[off] || depth > 2) return;
+      seen[off] = 1;
+      var n = dv.getUint16(off, le), i, e, tag, type, count, bytes, valOff, val;
+      for (i = 0; i < n; i++) {
+        e = off + 2 + i * 12;
+        if (e + 12 > dv.byteLength) break;
+        tag = dv.getUint16(e, le);
+        type = dv.getUint16(e + 2, le);
+        count = dv.getUint32(e + 4, le);
+        if (!TYPE_SIZE[type] || count > 4096) { continue; }
+        bytes = TYPE_SIZE[type] * count;
+        valOff = bytes <= 4 ? e + 8 : dv.getUint32(e + 8, le);
+        val = readValue(dv, valOff, type, count, le);
+        if (val === null) continue;
+        sink[tag] = val;
+        if (sink === tags) order.push(tag);
+      }
+    }
+
+    readIfd(ifd0, tags, 0);
+    if (typeof tags[0x8769] === 'number') readIfd(tags[0x8769], exifTags, 1);
+    if (typeof tags[0x8825] === 'number') readIfd(tags[0x8825], gpsTags, 1);
+
+    var total = Object.keys(tags).length + Object.keys(exifTags).length + Object.keys(gpsTags).length;
+
+    function num(v) { return typeof v === 'number' ? v : (Array.isArray(v) && v.length ? v[0] : null); }
+
+    // GPS: 도/분/초 → 십진수
+    function dms(arr, ref) {
+      if (!Array.isArray(arr) || arr.length < 3) return null;
+      var deg = 0, i, part;
+      for (i = 0; i < 3; i++) {
+        part = arr[i];
+        if (Array.isArray(part)) {
+          if (!part[1]) return null;
+          deg += (part[0] / part[1]) / Math.pow(60, i);
+        } else if (typeof part === 'number') {
+          deg += part / Math.pow(60, i);
+        } else return null;
+      }
+      if (ref === 'S' || ref === 'W') deg = -deg;
+      return deg;
+    }
+
+    res = {
+      total: total,
+      make: typeof tags[0x010F] === 'string' ? tags[0x010F] : '',
+      model: typeof tags[0x0110] === 'string' ? tags[0x0110] : '',
+      datetime: (typeof exifTags[0x9003] === 'string' && exifTags[0x9003]) ||
+                (typeof tags[0x0132] === 'string' ? tags[0x0132] : ''),
+      orientation: num(tags[0x0112]) || 1,
+      lat: dms(gpsTags[0x0002], gpsTags[0x0001]),
+      lon: dms(gpsTags[0x0004], gpsTags[0x0003]),
+      gpsCamera: typeof gpsTags[0x001D] === 'string' ? gpsTags[0x001D] : '',
+      software: typeof tags[0x0131] === 'string' ? tags[0x0131] : ''
+    };
+    res.hasGPS = res.lat !== null && res.lon !== null;
+    if (res.hasGPS) {
+      res.gpsText = Math.abs(res.lat).toFixed(5) + '°' + (res.lat < 0 ? 'S' : 'N') + ', ' +
+                    Math.abs(res.lon).toFixed(5) + '°' + (res.lon < 0 ? 'W' : 'E');
+    }
+    return res;
+  }
+
+  function ascii(u8, off, n) {
+    var s = '', i;
+    for (i = 0; i < n; i++) s += String.fromCharCode(u8[off + i]);
+    return s;
+  }
+
+  function parseExif(buf) {
+    var u8 = new Uint8Array(buf), i, len = u8.length;
+    var out = { parsed: false, container: '', found: false, hasGPS: false, total: 0,
+                make: '', model: '', datetime: '', orientation: 1, rawW: 0, rawH: 0 };
+
+    // ---- JPEG ----
+    if (len > 4 && u8[0] === 0xFF && u8[1] === 0xD8) {
+      out.container = 'JPEG'; out.parsed = true;
+      var off = 2;
+      while (off + 4 <= len) {
+        if (u8[off] !== 0xFF) { off++; continue; }
+        var marker = u8[off + 1];
+        if (marker === 0xFF) { off++; continue; }
+        if (marker === 0xD8 || marker === 0x01 || (marker >= 0xD0 && marker <= 0xD7)) { off += 2; continue; }
+        if (marker === 0xDA || marker === 0xD9) break;   // 압축 데이터 시작
+        var segLen = (u8[off + 2] << 8) | u8[off + 3];
+        if (segLen < 2 || off + 2 + segLen > len) break;
+        if (marker === 0xE1) {
+          var exifStart = off + 4;
+          if (ascii(u8, exifStart, 6) === 'Exif\u0000\u0000') {
+            var t1 = readTiff(u8.subarray(exifStart + 6, off + 2 + segLen));
+            if (t1) { out.found = true; out = mergeExif(out, t1); }
+          }
+          // XMP/기타 메타데이터도 있으면 "메타데이터 존재"로 표시
+          else if (ascii(u8, exifStart, 4) === 'http') {
+            if (!out.extraMeta) out.extraMeta = [];
+            if (out.extraMeta.indexOf('XMP') < 0) out.extraMeta.push('XMP');
+          }
+        }
+        // SOF: 원본(회전 전) 픽셀 크기
+        if (marker >= 0xC0 && marker <= 0xCF && marker !== 0xC4 && marker !== 0xC8 && marker !== 0xCC) {
+          if (segLen >= 7) { out.rawH = (u8[off + 5] << 8) | u8[off + 6]; out.rawW = (u8[off + 7] << 8) | u8[off + 8]; }
+        }
+        off += 2 + segLen;
+      }
+      return out;
+    }
+
+    // ---- PNG ----
+    var PNG_SIG = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+    var isPng = len > 8;
+    for (i = 0; i < 8 && isPng; i++) if (u8[i] !== PNG_SIG[i]) isPng = false;
+    if (isPng) {
+      out.container = 'PNG'; out.parsed = true;
+      var p = 8, dvp = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+      while (p + 8 <= len) {
+        var clen = dvp.getUint32(p), ctype = ascii(u8, p + 4, 4);
+        if (clen > len - p - 12 || clen < 0) break;
+        if (ctype === 'IHDR') { out.rawW = dvp.getUint32(p + 8); out.rawH = dvp.getUint32(p + 12); }
+        if (ctype === 'eXIf') {
+          var t2 = readTiff(u8.subarray(p + 8, p + 8 + clen));
+          if (t2) { out.found = true; out = mergeExif(out, t2); }
+        }
+        if (ctype === 'tEXt' || ctype === 'iTXt') {
+          var txt = ascii(u8, p + 8, Math.min(clen, 40));
+          if (/GPS|Comment|Software/i.test(txt)) {
+            if (!out.extraMeta) out.extraMeta = [];
+            out.extraMeta.push('텍스트 메타데이터');
+          }
+        }
+        if (ctype === 'IEND') break;
+        p += 12 + clen;
+      }
+      return out;
+    }
+
+    // ---- WebP ----
+    if (len > 16 && ascii(u8, 0, 4) === 'RIFF' && ascii(u8, 8, 4) === 'WEBP') {
+      out.container = 'WebP'; out.parsed = true;
+      var q = 12, dvw = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+      while (q + 8 <= len) {
+        var fcc = ascii(u8, q, 4), sz = dvw.getUint32(q + 4, true);
+        if (sz > len - q - 8) break;
+        if (fcc === 'EXIF') {
+          var s0 = q + 8;
+          if (ascii(u8, s0, 4) === 'Exif') s0 += 6;
+          var t3 = readTiff(u8.subarray(s0, q + 8 + sz));
+          if (t3) { out.found = true; out = mergeExif(out, t3); }
+        }
+        if (fcc === 'VP8X') {
+          var flags = u8[q + 8];
+          if (flags & 0x08) { if (!out.extraMeta) out.extraMeta = []; out.extraMeta.push('EXIF'); }
+        }
+        q += 8 + sz + (sz & 1);
+      }
+      return out;
+    }
+
+    // ---- HEIC/HEIF ----
+    if (len > 12 && ascii(u8, 4, 4) === 'ftyp') {
+      var brand = ascii(u8, 8, 4);
+      out.container = /heic|heix|hevc|hevx|heif|mif1|msf1/.test(brand) ? 'HEIC' :
+                      (brand === 'avif' ? 'AVIF' : brand);
+      out.parsed = out.container === 'HEIC' || out.container === 'AVIF';
+      // HEIC는 메타 구조가 복잡하므로 'Exif' 문자열 존재 여부만 참고 정보로 본다.
+      var probe = ascii(u8, 0, Math.min(len, 4096));
+      if (out.container === 'HEIC' && probe.indexOf('Exif') >= 0) { out.found = true; out.heicExif = true; }
+      return out;
+    }
+
+    return out;
+  }
+
+  function mergeExif(out, t) {
+    out.total += t.total || 0;
+    out.make = out.make || t.make;
+    out.model = out.model || t.model;
+    out.datetime = out.datetime || t.datetime;
+    out.orientation = t.orientation || out.orientation;
+    if (t.hasGPS) { out.hasGPS = true; out.lat = t.lat; out.lon = t.lon; out.gpsText = t.gpsText; }
+    if (t.software) out.software = out.software || t.software;
+    return out;
+  }
+
+  /* ===================== 이미지 디코딩(회전 반영) ===================== */
+  function drawOriented(ctx, source, w, h, orientation) {
+    // orientation 1~8: 5~8은 가로/세로가 뒤바뀐다.
+    ctx.save();
+    switch (orientation) {
+      case 2: ctx.transform(-1, 0, 0, 1, w, 0); break;
+      case 3: ctx.transform(-1, 0, 0, -1, w, h); break;
+      case 4: ctx.transform(1, 0, 0, -1, 0, h); break;
+      case 5: ctx.transform(0, 1, 1, 0, 0, 0); break;
+      case 6: ctx.transform(0, 1, -1, 0, h, 0); break;
+      case 7: ctx.transform(0, -1, -1, 0, h, w); break;
+      case 8: ctx.transform(0, -1, 1, 0, 0, w); break;
+      default: break;
+    }
+    ctx.drawImage(source, 0, 0, w, h);
+    ctx.restore();
+  }
+
+  function decodeImage(blob, exif) {
+    // createImageBitmap(..., {imageOrientation:'from-image'}) → EXIF 회전을 브라우저가 적용
+    var chain = (typeof createImageBitmap === 'function')
+      ? createImageBitmap(blob, { imageOrientation: 'from-image' })
+          .catch(function () { return createImageBitmap(blob); })
+      : Promise.reject(new Error('no createImageBitmap'));
+    return chain.then(function (bmp) {
+      var needManual = false;
+      // 브라우저가 회전을 무시한 경우(치수로 판별) 직접 변환
+      if (exif && exif.orientation > 1 && exif.rawW && exif.rawH) {
+        var swap = exif.orientation >= 5;
+        var expW = swap ? exif.rawH : exif.rawW;
+        var expH = swap ? exif.rawW : exif.rawH;
+        if (bmp.width === exif.rawW && bmp.height === exif.rawH && (bmp.width !== expW || bmp.height !== expH)) {
+          needManual = true;
+        }
+      }
+      var ow = needManual && exif.orientation >= 5 ? bmp.height : bmp.width;
+      var oh = needManual && exif.orientation >= 5 ? bmp.width : bmp.height;
+      return { source: bmp, w: ow, h: oh, manual: needManual };
+    }).catch(function () {
+      // createImageBitmap 미지원/실패 → <img> 폴백
+      return new Promise(function (resolve, reject) {
+        var url = URL.createObjectURL(blob);
+        var img = new Image();
+        img.onload = function () {
+          var needManual = false;
+          if (exif && exif.orientation > 1 && exif.rawW && exif.rawH) {
+            var swap = exif.orientation >= 5;
+            var expW = swap ? exif.rawH : exif.rawW;
+            var expH = swap ? exif.rawW : exif.rawH;
+            if (img.naturalWidth === exif.rawW && img.naturalHeight === exif.rawH &&
+                (img.naturalWidth !== expW || img.naturalHeight !== expH)) needManual = true;
+          }
+          var ow = needManual && exif.orientation >= 5 ? img.naturalHeight : img.naturalWidth;
+          var oh = needManual && exif.orientation >= 5 ? img.naturalWidth : img.naturalHeight;
+          resolve({ source: img, w: ow, h: oh, manual: needManual, url: url });
+        };
+        img.onerror = function () { URL.revokeObjectURL(url); reject(new Error('decode')); };
+        img.src = url;
+      });
+    });
+  }
+
+  /* ===================== 파일 불러오기 ===================== */
+  function loadFile(file) {
+    if (!file) return;
+    if (!/^image\//.test(file.type || '') && !/\.(jpe?g|png|webp|heic|heif)$/i.test(file.name || '')) {
+      toast('이미지 파일만 불러올 수 있습니다.'); return;
+    }
+    S.busy = true;
+    toast('사진 처리 중…', 1500);
+    var exif;
+    var bufPromise = file.arrayBuffer ? file.arrayBuffer() : new Response(file).arrayBuffer();
+    Promise.resolve(bufPromise)
+      .then(function (buf) {
+        exif = parseExif(buf);
+        return decodeImage(file, exif);
+      })
+      .then(function (dec) {
+        var w = dec.w, h = dec.h;
+        S.scaleNote = false;
+        // 브라우저 캔버스 한도를 넘는 초고해상도는 비율 유지로 줄인다(아이폰 48MP 등)
+        if (w * h > MAX_AREA) {
+          var k = Math.sqrt(MAX_AREA / (w * h));
+          w = Math.max(1, Math.round(w * k));
+          h = Math.max(1, Math.round(h * k));
+          while (w * h > MAX_AREA) { if (w >= h) { w--; } else { h--; } }   // 반올림 오차 보정
+          S.scaleNote = true;
+        }
+        src.width = w; src.height = h;
+        sctx.imageSmoothingEnabled = true;
+        sctx.imageSmoothingQuality = 'high';
+        sctx.clearRect(0, 0, w, h);
+        if (dec.manual) {
+          drawOriented(sctx, dec.source, dec.w, dec.h, exif.orientation);
+        } else {
+          sctx.drawImage(dec.source, 0, 0, w, h);
+        }
+        if (dec.source.close) { try { dec.source.close(); } catch (e) {} }
+        if (dec.url) URL.revokeObjectURL(dec.url);
+
+        view.width = w; view.height = h;
+        vctx.imageSmoothingEnabled = true;
+        vctx.drawImage(src, 0, 0);
+
+        S.loaded = true; S.w = w; S.h = h;
+        S.orientation = exif.orientation || 1;
+        S.exif = exif; S.fileName = file.name || 'photo'; S.fileType = file.type || '';
+        S.undo = []; S.tiles = null; S.drawing = false;
+        S.radius = brushRadius();
+
+        empty.classList.remove('on');
+        wrap.classList.add('on');
+        changeBtn.style.display = '';
+        setEnabled(true);
+        layout();
+        renderExif(exif, file);
+        updateUndoUI();
+        exifbar.classList.add('on');
+        S.busy = false;
+        toast('불러왔습니다 · ' + w + '×' + h, 1800);
+      })
+      .catch(function (err) {
+        S.busy = false;
+        var name = (file.name || '');
+        var isHeic = /heic|heif/i.test(name) || (file.type || '').indexOf('hei') >= 0;
+        toast(isHeic
+          ? 'HEIC는 이 브라우저에서 열 수 없습니다. 아이폰 설정 > 카메라 > 포맷에서 "높은 호환성"으로 바꾸거나 JPG로 변환해 주세요.'
+          : '사진을 열지 못했습니다. JPG·PNG·WebP 파일로 다시 시도해 주세요.', 6000);
+      });
+  }
+
+  function renderExif(exif, file) {
+    var chips = [];
+    if (exif.found) {
+      if (exif.hasGPS) chips.push('위치(GPS)');
+      else if (exif.heicExif) chips.push('메타데이터');
+      if (exif.make || exif.model) chips.push('기기 정보');
+      if (exif.datetime) chips.push('촬영일시');
+      if (exif.orientation > 1) chips.push('회전 정보');
+      if (exif.extraMeta && exif.extraMeta.length) chips.push(exif.extraMeta.join('·'));
+      if (!chips.length) chips.push('메타데이터');
+      exifbar.className = 'exifbar on warn';
+      exifText.innerHTML = '<b>EXIF 감지됨</b> · ' + chips.join('·') + ' → 저장 시 삭제';
+    } else if (exif.parsed) {
+      exifbar.className = 'exifbar on ok';
+      exifText.innerHTML = '<b>EXIF 없음</b> · 위치·기기 정보 없음';
+    } else {
+      exifbar.className = 'exifbar on';
+      exifText.innerHTML = '<b>메타데이터 확인 불가</b> · 저장하면 새로 그려 제거';
+    }
+
+    var rows = [];
+    rows.push(['파일', escapeHtml(file.name || '사진') + ' · ' + fmtBytes(file.size)]);
+    var rawDim = (exif.rawW && exif.rawH) ? exif.rawW + '×' + exif.rawH : '';
+    var shown = S.w + '×' + S.h;
+    rows.push(['형식', (exif.container || '알 수 없음') + ' · ' +
+      (rawDim && rawDim !== shown ? '원본 ' + rawDim + ' → 화면 ' + shown : shown)]);
+    if (rawDim && rawDim !== shown && (S.orientation > 1 || S.scaleNote)) {
+      rows.push(['보정', S.orientation > 1 ? 'EXIF 회전 반영' : '기기 한도에 맞춰 축소']);
+    }
+    rows.push(['EXIF 태그', exif.found ? (exif.total || '여러') + '개 발견' : (exif.parsed ? '없음' : '확인 불가')]);
+    if (exif.make || exif.model) rows.push(['기기', escapeHtml((exif.make + ' ' + exif.model).trim())]);
+    if (exif.datetime) rows.push(['촬영일시', escapeHtml(exif.datetime.replace(/^(\d{4}):(\d{2}):(\d{2})/, '$1-$2-$3'))]);
+    if (exif.hasGPS) rows.push(['위치', escapeHtml(exif.gpsText)]);
+    else if (exif.parsed) rows.push(['위치', '없음']);
+    if (exif.orientation > 1) rows.push(['회전(EXIF)', 'Orientation ' + exif.orientation + ' → 화면에 바로잡아 표시']);
+    if (exif.extraMeta && exif.extraMeta.length) rows.push(['기타', exif.extraMeta.join(', ')]);
+    rows.push(['저장 결과', '메타데이터 0바이트 · ' + S.w + '×' + S.h + ' 새 이미지']);
+
+    exifList.innerHTML = rows.map(function (r) {
+      return '<dt>' + r[0] + '</dt><dd>' + r[1] + '</dd>';
+    }).join('');
+    exifNote.textContent = '저장할 때 사진을 캔버스에 새로 그려 다시 인코딩하므로 EXIF·GPS·기기정보·촬영일시가 남지 않습니다. 원본 파일은 이 기기에서만 읽히고 어디로도 전송되지 않습니다.';
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  /* ===================== 레이아웃 ===================== */
+  function layout() {
+    if (!S.loaded) return;
+    var availW = stagebody.clientWidth - 20;
+    var availH = stagebody.clientHeight - 20;
+    if (availW < 20 || availH < 20) { availW = window.innerWidth - 20; availH = window.innerHeight * 0.5; }
+    var k = Math.min(availW / S.w, availH / S.h);
+    if (k > 1) k = 1;
+    var dw = Math.max(1, Math.round(S.w * k));
+    var dh = Math.max(1, Math.round(S.h * k));
+    wrap.style.width = dw + 'px';
+    wrap.style.height = dh + 'px';
+    var dpr = Math.min(window.devicePixelRatio || 1, 2);
+    overlay.width = Math.round(dw * dpr);
+    overlay.height = Math.round(dh * dpr);
+    drawCursor(null);
+  }
+  window.addEventListener('resize', function () { layout(); });
+  window.addEventListener('orientationchange', function () { setTimeout(layout, 120); });
+  if (window.ResizeObserver) new ResizeObserver(function () { layout(); }).observe(stagebody);
+
+  /* ===================== 브러시 ===================== */
+  function brushRadius() {
+    var base = Math.min(S.w, S.h);
+    var r = base * (SIZE_FRAC[S.size] || SIZE_FRAC.m);
+    return Math.max(6, Math.round(r));
+  }
+
+  function drawCursor(pt) {
+    octx.setTransform(1, 0, 0, 1, 0, 0);
+    octx.clearRect(0, 0, overlay.width, overlay.height);
+    if (!pt || !S.loaded) return;
+    var cw = wrap.clientWidth || 1;
+    var dispR = S.radius * (cw / S.w);
+    var dpr = overlay.width / cw;
+    octx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    octx.beginPath();
+    octx.arc(pt.x, pt.y, Math.max(5, dispR), 0, Math.PI * 2);
+    octx.lineWidth = 2;
+    octx.strokeStyle = 'rgba(0,0,0,.55)';
+    octx.stroke();
+    octx.lineWidth = 1.4;
+    octx.strokeStyle = 'rgba(255,255,255,.95)';
+    octx.stroke();
+  }
+
+  function toCanvas(e) {
+    var r = view.getBoundingClientRect();
+    return {
+      x: (e.clientX - r.left) * (view.width / r.width),
+      y: (e.clientY - r.top) * (view.height / r.height)
+    };
+  }
+  function toDisplay(e) {
+    var r = view.getBoundingClientRect();
+    return { x: e.clientX - r.left, y: e.clientY - r.top };
+  }
+
+  /* ===================== 되돌리기(타일 스냅샷) ===================== */
+  function snapshotRect(x, y, w, h) {
+    if (!S.tiles) return;
+    var x0 = Math.max(0, Math.floor(x)), y0 = Math.max(0, Math.floor(y));
+    var x1 = Math.min(S.w, Math.ceil(x + w)), y1 = Math.min(S.h, Math.ceil(y + h));
+    if (x1 <= x0 || y1 <= y0) return;
+    var tx0 = Math.floor(x0 / TILE), tx1 = Math.floor((x1 - 1) / TILE);
+    var ty0 = Math.floor(y0 / TILE), ty1 = Math.floor((y1 - 1) / TILE);
+    for (var ty = ty0; ty <= ty1; ty++) {
+      for (var tx = tx0; tx <= tx1; tx++) {
+        var key = tx + ',' + ty;
+        if (S.tiles.has(key)) continue;
+        var sx = tx * TILE, sy = ty * TILE;
+        var tw = Math.min(TILE, S.w - sx), th = Math.min(TILE, S.h - sy);
+        try {
+          S.tiles.set(key, { x: sx, y: sy, data: vctx.getImageData(sx, sy, tw, th) });
+        } catch (e) { /* 용량 초과 등은 무시 */ }
+      }
+    }
+  }
+  function pushUndo(tiles) {
+    if (!tiles || !tiles.size) return;
+    var arr = [];
+    tiles.forEach(function (v) { arr.push(v); });
+    S.undo.push(arr);
+    if (S.undo.length > MAX_UNDO) S.undo.shift();
+    updateUndoUI();
+  }
+  function undo() {
+    var step = S.undo.pop();
+    if (!step) return;
+    for (var i = 0; i < step.length; i++) {
+      vctx.putImageData(step[i].data, step[i].x, step[i].y);
+    }
+    updateUndoUI();
+    toast('되돌렸습니다' + (S.undo.length ? ' (' + S.undo.length + '단계 남음)' : ''), 1400);
+  }
+  function updateUndoUI() {
+    undoBtn.disabled = !S.undo.length;
+    undoBtn.textContent = S.undo.length > 1 ? '되돌리기 ' + S.undo.length : '되돌리기';
+  }
+
+  /* ===================== 효과 ===================== */
+  function mosaicAt(x, y, r) {
+    var B = Math.max(3, Math.round(r * 0.2));
+    var x0 = Math.floor((x - r) / B) * B;
+    var y0 = Math.floor((y - r) / B) * B;
+    var x1 = Math.ceil((x + r) / B) * B;
+    var y1 = Math.ceil((y + r) / B) * B;
+    x0 = Math.max(0, x0); y0 = Math.max(0, y0);
+    x1 = Math.min(S.w, x1); y1 = Math.min(S.h, y1);
+    var w = x1 - x0, h = y1 - y0;
+    if (w <= 0 || h <= 0) return;
+    var cols = Math.max(1, Math.round(w / B)), rows = Math.max(1, Math.round(h / B));
+    var bw = w / cols, bh = h / rows;
+
+    snapshotRect(x0, y0, w, h);
+    tmp.width = cols; tmp.height = rows;
+    tctx.imageSmoothingEnabled = true;
+    tctx.imageSmoothingQuality = 'high';
+    tctx.clearRect(0, 0, cols, rows);
+    tctx.drawImage(view, x0, y0, w, h, 0, 0, cols, rows);
+
+    vctx.save();
+    vctx.beginPath();
+    vctx.arc(x, y, r, 0, Math.PI * 2);
+    vctx.clip();
+    vctx.imageSmoothingEnabled = false;
+    vctx.drawImage(tmp, 0, 0, cols, rows, x0, y0, cols * bw, rows * bh);
+    vctx.restore();
+    vctx.imageSmoothingEnabled = true;
+  }
+
+  function blurAt(x, y, r) {
+    var br = Math.max(3, r * 0.35);
+    var pad = Math.ceil(br * 2);
+    var sx = Math.max(0, x - r - pad), sy = Math.max(0, y - r - pad);
+    var ex = Math.min(S.w, x + r + pad), ey = Math.min(S.h, y + r + pad);
+    if (ex <= sx || ey <= sy) return;
+    snapshotRect(x - r, y - r, r * 2, r * 2);
+    vctx.save();
+    vctx.beginPath();
+    vctx.arc(x, y, r, 0, Math.PI * 2);
+    vctx.clip();
+    vctx.filter = 'blur(' + br.toFixed(1) + 'px)';
+    vctx.drawImage(view, sx, sy, ex - sx, ey - sy, sx, sy, ex - sx, ey - sy);
+    vctx.filter = 'none';
+    vctx.restore();
+  }
+
+  var FILTER_OK = (function () {
+    try { var c = document.createElement('canvas').getContext('2d'); c.filter = 'blur(1px)'; return c.filter === 'blur(1px)'; }
+    catch (e) { return false; }
+  })();
+
+  function stamp(x, y) {
+    if (S.style === 'blur' && FILTER_OK) blurAt(x, y, S.radius);
+    else mosaicAt(x, y, S.radius);
+  }
+
+  /* ===================== 포인터 ===================== */
+  function onDown(e) {
+    if (!S.loaded || S.busy) return;
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    if (e.isPrimary === false) return;
+    e.preventDefault();
+    S.drawing = true;
+    S.tiles = new Map();
+    S.last = toCanvas(e);
+    try { view.setPointerCapture(e.pointerId); } catch (err) {}
+    stamp(S.last.x, S.last.y);
+    drawCursor(toDisplay(e));
+  }
+  function strokeTo(pt) {
+    var r = S.radius;
+    var dx = pt.x - S.last.x, dy = pt.y - S.last.y;
+    var dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist < 0.01) return;
+    var step = Math.max(2, r * 0.35);
+    var n = Math.max(1, Math.ceil(dist / step));
+    for (var i = 1; i <= n; i++) {
+      stamp(S.last.x + dx * i / n, S.last.y + dy * i / n);
+    }
+    S.last = pt;
+  }
+  function onMove(e) {
+    if (!S.loaded) return;
+    if (!S.drawing) { drawCursor(toDisplay(e)); return; }
+    e.preventDefault();
+    var events = (e.getCoalescedEvents && e.getCoalescedEvents()) || [e];
+    for (var i = 0; i < events.length; i++) {
+      strokeTo(toCanvas(events[i]));
+    }
+    drawCursor(toDisplay(e));
+  }
+  function onUp(e) {
+    if (!S.drawing) return;
+    S.drawing = false;
+    try { view.releasePointerCapture(e.pointerId); } catch (err) {}
+    pushUndo(S.tiles);
+    S.tiles = null;
+    S.last = null;
+    if (e.pointerType !== 'mouse') drawCursor(null);
+  }
+  function onLeave() { if (!S.drawing) drawCursor(null); }
+
+  view.addEventListener('pointerdown', onDown);
+  view.addEventListener('pointermove', onMove);
+  view.addEventListener('pointerup', onUp);
+  view.addEventListener('pointercancel', onUp);
+  view.addEventListener('pointerleave', onLeave);
+  view.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+
+  /* ===================== 저장 / 공유 ===================== */
+  function makeBlob() {
+    var out = document.createElement('canvas');
+    out.width = S.w; out.height = S.h;
+    var c = out.getContext('2d');
+    var type = S.fmt === 'png' ? 'image/png' : 'image/jpeg';
+    if (S.fmt !== 'png') { c.fillStyle = '#ffffff'; c.fillRect(0, 0, S.w, S.h); }
+    c.imageSmoothingEnabled = true;
+    c.drawImage(view, 0, 0);
+    return new Promise(function (resolve) {
+      out.toBlob(function (b) { resolve({ blob: b, type: type }); }, type, 0.92);
+    });
+  }
+
+  function doSave() {
+    if (!S.loaded || S.busy) return;
+    S.busy = true;
+    saveBtn.disabled = true;
+    toast('저장 중…', 1200);
+    makeBlob().then(function (r) {
+      var name = stampName(S.fmt === 'png' ? 'png' : 'jpg');
+      var url = URL.createObjectURL(r.blob);
+      var a = document.createElement('a');
+      a.href = url; a.download = name; a.rel = 'noopener';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(function () { URL.revokeObjectURL(url); }, 15000);
+      S.busy = false; saveBtn.disabled = false;
+      toast('저장했습니다 · ' + name + ' (' + fmtBytes(r.blob.size) + ', 메타데이터 0)', 3200);
+    }).catch(function () {
+      S.busy = false; saveBtn.disabled = false;
+      toast('저장에 실패했습니다. 다른 형식으로 다시 시도해 주세요.', 4000);
+    });
+  }
+
+  function doShare() {
+    if (!S.loaded || S.busy) return;
+    S.busy = true;
+    shareBtn.disabled = true;
+    toast('공유 준비 중…', 1200);
+    makeBlob().then(function (r) {
+      var name = stampName(S.fmt === 'png' ? 'png' : 'jpg');
+      var f = new File([r.blob], name, { type: r.type });
+      S.busy = false; shareBtn.disabled = false;
+      if (navigator.canShare && navigator.canShare({ files: [f] })) {
+        return navigator.share({ files: [f], title: 'EXIF 삭제된 사진' }).catch(function (err) {
+          if (err && err.name !== 'AbortError') toast('공유가 취소되었거나 지원되지 않습니다. 저장하기를 이용해 주세요.', 3600);
+        });
+      }
+      toast('이 브라우저는 사진 공유를 지원하지 않습니다. 저장하기를 이용해 주세요.', 3600);
+    }).catch(function () {
+      S.busy = false; shareBtn.disabled = false;
+      toast('공유할 사진을 만들지 못했습니다.', 3000);
+    });
+  }
+
+  /* ===================== 초기화 ===================== */
+  function doReset() {
+    if (!S.loaded) return;
+    if (S.undo.length && !window.confirm('모자이크 작업을 모두 지우고 원본 사진으로 되돌릴까요? (되돌리기 기록도 함께 사라집니다)')) return;
+    vctx.clearRect(0, 0, S.w, S.h);
+    vctx.drawImage(src, 0, 0);
+    S.undo = [];
+    updateUndoUI();
+    toast('원본으로 초기화했습니다', 1600);
+  }
+
+  /* ===================== 이벤트 연결 ===================== */
+  function setEnabled(on) {
+    [styleSeg, formatSeg, sizeSeg, saveBtn, shareBtn].forEach(function (node) {
+      Array.prototype.forEach.call(node.querySelectorAll('button'), function (b) { b.disabled = !on; });
+      if (node.tagName === 'BUTTON') node.disabled = !on;
+    });
+    undoBtn.disabled = !on || !S.undo.length;
+    resetBtn.disabled = !on;
+  }
+
+  pickBtn.addEventListener('click', function () { fileInput.click(); });
+  changeBtn.addEventListener('click', function () { fileInput.click(); });
+  fileInput.addEventListener('change', function () {
+    if (fileInput.files && fileInput.files[0]) loadFile(fileInput.files[0]);
+    fileInput.value = '';
+  });
+
+  styleSeg.addEventListener('click', function (e) {
+    var b = e.target.closest('button'); if (!b) return;
+    S.style = b.dataset.style; setPressed(styleSeg, b);
+    if (S.style === 'blur' && !FILTER_OK) toast('이 브라우저는 블러 필터를 지원하지 않아 모자이크로 대체됩니다.', 3000);
+  });
+  formatSeg.addEventListener('click', function (e) {
+    var b = e.target.closest('button'); if (!b) return;
+    S.fmt = b.dataset.format; setPressed(formatSeg, b);
+  });
+  sizeSeg.addEventListener('click', function (e) {
+    var b = e.target.closest('button'); if (!b) return;
+    S.size = b.dataset.size; setPressed(sizeSeg, b);
+    S.radius = brushRadius();
+    drawCursor(null);
+  });
+
+  undoBtn.addEventListener('click', undo);
+  resetBtn.addEventListener('click', doReset);
+  saveBtn.addEventListener('click', doSave);
+  shareBtn.addEventListener('click', doShare);
+
+  function placeExifPanel() {
+    // 패널은 배지 바로 아래에서 열려 배지를 다시 누를 수 있게 한다.
+    exifpanel.style.top = (exifbar.offsetTop + exifbar.offsetHeight + 6) + 'px';
+  }
+  exifbar.addEventListener('click', function () {
+    var on = !exifpanel.classList.contains('on');
+    if (on) placeExifPanel();
+    exifpanel.classList.toggle('on', on);
+    exifbar.setAttribute('aria-expanded', on ? 'true' : 'false');
+    exifChev.textContent = on ? '접기 ▴' : '자세히 ▾';
+  });
+  document.addEventListener('click', function (e) {
+    if (!exifpanel.classList.contains('on')) return;
+    if (exifpanel.contains(e.target) || exifbar.contains(e.target)) return;
+    exifpanel.classList.remove('on');
+    exifbar.setAttribute('aria-expanded', 'false');
+    exifChev.textContent = '자세히 ▾';
+  });
+
+  document.addEventListener('keydown', function (e) {
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')) {
+      e.preventDefault(); undo();
+    }
+  });
+
+  // 데스크톱: 끌어다 놓기 / 붙여넣기
+  window.addEventListener('dragover', function (e) { e.preventDefault(); });
+  window.addEventListener('drop', function (e) {
+    e.preventDefault();
+    var f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if (f) loadFile(f);
+  });
+  window.addEventListener('paste', function (e) {
+    var items = e.clipboardData && e.clipboardData.items;
+    if (!items) return;
+    for (var i = 0; i < items.length; i++) {
+      if (items[i].type && items[i].type.indexOf('image/') === 0) {
+        var f = items[i].getAsFile();
+        if (f) { loadFile(f); break; }
+      }
+    }
+  });
+
+  // 공유 버튼은 '파일 공유'가 실제로 가능한 기기에서만 노출한다.
+  var canShareFiles = false;
+  try {
+    if (navigator.canShare && typeof File !== 'undefined') {
+      canShareFiles = navigator.canShare({ files: [new File([new Uint8Array(1)], 'probe.jpg', { type: 'image/jpeg' })] });
+    }
+  } catch (err) { canShareFiles = false; }
+  if (canShareFiles) shareBtn.hidden = false;
+  else if (navigator.share && !navigator.canShare) shareBtn.hidden = false;
+
+  setEnabled(false);
+  updateUndoUI();
+  layout();
+})();
+</script>
+</body>
+</html>
